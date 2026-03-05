@@ -21,6 +21,7 @@ dependencies = [
     "python-pptx>=0.6.0",
     "rapidfuzz>=3.6.0",
     "qutip>=5.0.0",
+    "rdkit>=2023.9.5",
     "unified-planning>=1.0.0",
     "scapy>=2.6.0",
     "httpx>=0.27.0",

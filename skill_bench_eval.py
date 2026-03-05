@@ -45,6 +45,11 @@ EXCLUDED_TASKS = {
     "trend-anomaly-causal-inference",
     "video-filler-word-remover",
     "video-tutorial-indexer",
+    "fix-build-agentops",
+    "fix-build-google-auto",
+    "fix-druid-loophole-cve",
+    "fix-erlang-ssh-cve",
+    "fix-visual-stability",
 }
 
 PROJECT_ROOT = Path(__file__).parent.resolve()
@@ -879,6 +884,9 @@ def run_run(args: argparse.Namespace) -> None:
         if not task_dir.exists():
             print(f"Task not found: {args.task}", file=sys.stderr)
             sys.exit(1)
+        if args.task in EXCLUDED_TASKS:
+            print(f"Task skipped: {args.task} (excluded)", file=sys.stderr)
+            sys.exit(0)
         tasks = [task_dir]
     elif args.start is not None or args.end is not None:
         start = args.start or 1
@@ -893,6 +901,11 @@ def run_run(args: argparse.Namespace) -> None:
         tasks = tasks[start - 1 : end]
     elif args.count:
         tasks = tasks[:args.count]
+
+    tasks = [t for t in tasks if t.name not in EXCLUDED_TASKS]
+    if not tasks:
+        print("No tasks to run after exclusions.", file=sys.stderr)
+        sys.exit(0)
     
     output_base = PROJECT_ROOT / "output"
     output_base.mkdir(parents=True, exist_ok=True)
