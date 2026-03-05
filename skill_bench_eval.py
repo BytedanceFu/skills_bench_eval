@@ -446,6 +446,37 @@ def normalize_outputs(work_dir: Path) -> None:
         print(f"    [output] copied {copied} file(s) from output/ to task root", file=sys.stderr)
 
 
+def wait_for_work_dir_settle(work_dir: Path, timeout_s: float = 10.0, poll_s: float = 1.0) -> None:
+    end = time.time() + max(0.0, float(timeout_s))
+    last_snapshot = None
+    stable_rounds = 0
+
+    while time.time() < end:
+        snapshot = []
+        for root, dirs, files in os.walk(work_dir):
+            parts = set(Path(root).parts)
+            if "logs" in parts or "__pycache__" in parts:
+                continue
+            for name in files:
+                p = Path(root) / name
+                try:
+                    st = p.stat()
+                except Exception:
+                    continue
+                snapshot.append((str(p), int(st.st_size), int(st.st_mtime)))
+        snapshot.sort()
+
+        if snapshot == last_snapshot:
+            stable_rounds += 1
+            if stable_rounds >= 2:
+                return
+        else:
+            stable_rounds = 0
+            last_snapshot = snapshot
+
+        time.sleep(max(0.05, float(poll_s)))
+
+
 def get_available_tasks() -> list[Path]:
     """Get list of available task directories."""
     if not TASKS_DIR.exists():
@@ -836,6 +867,7 @@ def run_task(
         print(f"    [tokens] in={usage.get('input_tokens', 0)} out={usage.get('output_tokens', 0)}", file=sys.stderr)
         
         if work_dir:
+            wait_for_work_dir_settle(work_dir)
             normalize_outputs(work_dir)
             verification_result = run_verification(task_dir, work_dir)
             result["verification"] = verification_result
@@ -852,7 +884,7 @@ def run_task(
         # restore_skills(backup_path)
 
         print(f"    [cleanup] deleted session for user {user}")
-        time.sleep(25)
+        time.sleep(15)
         delete_session(user)
         
         result["end_time"] = time.time()
