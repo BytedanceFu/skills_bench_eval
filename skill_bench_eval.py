@@ -408,7 +408,7 @@ Use paths relative to that directory (do NOT create nested {work_dir_str}/ insid
 
 For example:
 - Read input: data/...
-- Write output: follow the task instructions exactly (e.g. write `report.json` or `period.txt` in this directory).
+- Write output: output/...
 
 ---
 
