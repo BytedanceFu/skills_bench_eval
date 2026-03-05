@@ -229,6 +229,71 @@ def restore_skills(backup_path: Optional[Path]) -> None:
         print(f"    [warn] could not restore skills: {e}", file=sys.stderr)
 
 
+def rewrite_work_dir_file_paths(task_dir: Path, work_dir: Path) -> None:
+    abs_work_dir = str(work_dir)
+
+    def replace_abs_dir(text: str, src: str, dst: str) -> str:
+        pattern = re.compile(rf"(^|(?<=[\s'\"`(])){re.escape(src)}", re.MULTILINE)
+        return pattern.sub(lambda m: f"{m.group(1)}{dst}", text)
+
+    allowed_suffixes = {
+        ".py",
+        ".sh",
+        ".txt",
+        ".md",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".ini",
+        ".cfg",
+    }
+
+    for file_path in work_dir.rglob("*"):
+        if not file_path.is_file():
+            continue
+        if any(part in {"logs", "__pycache__", "data"} for part in file_path.parts):
+            continue
+        if file_path.suffix and file_path.suffix not in allowed_suffixes:
+            continue
+        if not file_path.suffix and file_path.name not in {"solve.sh", "run.sh"}:
+            continue
+
+        try:
+            head = file_path.read_bytes()[:2048]
+            if b"\x00" in head:
+                continue
+        except Exception:
+            continue
+
+        try:
+            original = file_path.read_text(encoding="utf-8", errors="strict")
+        except Exception:
+            try:
+                original = file_path.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+
+        updated = original
+        updated = replace_abs_dir(updated, "/app/environment/", f"{abs_work_dir}/")
+        updated = replace_abs_dir(updated, "/root/", f"{abs_work_dir}/")
+        updated = replace_abs_dir(updated, "/app/", f"{abs_work_dir}/")
+        updated = replace_abs_dir(updated, "/workspace/", f"{abs_work_dir}/workspace/")
+        updated = replace_abs_dir(updated, "/output/", f"{abs_work_dir}/output/")
+        updated = replace_abs_dir(updated, "/data/", f"{abs_work_dir}/data/")
+        updated = replace_abs_dir(updated, "/logs/", f"{abs_work_dir}/logs/")
+
+        double_prefix = f"{abs_work_dir}{abs_work_dir}"
+        while double_prefix in updated:
+            updated = updated.replace(double_prefix, abs_work_dir)
+
+        if updated != original:
+            try:
+                file_path.write_text(updated, encoding="utf-8")
+            except Exception:
+                continue
+
+
 def prepare_work_dir(task_dir: Path) -> Path:
     """Prepare working directory for a task. Returns work directory path."""
     task_name = task_dir.name
@@ -246,6 +311,7 @@ def prepare_work_dir(task_dir: Path) -> Path:
                     shutil.copytree(item, work_path / item.name)
                 else:
                     shutil.copy2(item, work_path / item.name)
+        rewrite_work_dir_file_paths(task_dir, work_path)
     
     print(f"    [work] prepared {work_path}", file=sys.stderr)
     return work_path
@@ -260,6 +326,8 @@ def rewrite_instruction_paths(instruction: str, task_dir: Path, work_dir: Path) 
     - /workspace/ → bench_work/xxx/workspace/
     - /output/ → bench_work/xxx/output/
     - /data/ → bench_work/xxx/data/
+    
+    Also prepends a working directory notice to ensure output files are created in the correct location.
     """
     env_dir = task_dir / "environment"
     
@@ -268,12 +336,27 @@ def rewrite_instruction_paths(instruction: str, task_dir: Path, work_dir: Path) 
     
     result = instruction
     
-    result = result.replace("/root/", f"{work_dir_str}/")
-    result = result.replace("/app/", f"{work_dir_str}/")
+    def replace_abs_dir(text: str, src: str, dst: str) -> str:
+        pattern = re.compile(rf"(^|(?<=[\s'\"`(])){re.escape(src)}", re.MULTILINE)
+        return pattern.sub(lambda m: f"{m.group(1)}{dst}", text)
     
-    result = result.replace("/workspace/", f"{work_dir_str}/workspace/")
-    result = result.replace("/output/", f"{work_dir_str}/output/")
-    result = result.replace("/data/", f"{work_dir_str}/data/")
+    result = replace_abs_dir(result, "/root/", f"{work_dir_str}/")
+    result = replace_abs_dir(result, "/app/", f"{work_dir_str}/")
+    
+    result = replace_abs_dir(result, "/workspace/", f"{work_dir_str}/workspace/")
+    result = replace_abs_dir(result, "/output/", f"{work_dir_str}/output/")
+    result = replace_abs_dir(result, "/data/", f"{work_dir_str}/data/")
+    
+    double_prefix = f"{work_dir_str}{work_dir_str}"
+    if double_prefix in result:
+        result = result.replace(double_prefix, work_dir_str)
+
+    def strip_work_dir_prefix(text: str) -> str:
+        prefix = f"{work_dir_str}/"
+        pattern = re.compile(rf"(^|(?<=[\s'\"`(])){re.escape(prefix)}", re.MULTILINE)
+        return pattern.sub(lambda m: m.group(1), text)
+
+    result = strip_work_dir_prefix(result)
     
     env_files = []
     if env_dir.exists():
@@ -284,6 +367,23 @@ def rewrite_instruction_paths(instruction: str, task_dir: Path, work_dir: Path) 
     for filename in env_files:
         result = result.replace(f"/root/{filename}", f"{work_dir_str}/{filename}")
         result = result.replace(f"/app/{filename}", f"{work_dir_str}/{filename}")
+    
+    work_dir_notice = f"""**IMPORTANT: Working Directory**
+
+All input files are located in: {work_dir_str}/
+All output files MUST be created in: {work_dir_str}/
+
+Use paths relative to that directory (do NOT create nested {work_dir_str}/ inside it).
+
+For example:
+- Read input: data/...
+- Write output: output/...
+
+---
+
+"""
+    
+    result = work_dir_notice + result
     
     return result
 
@@ -435,6 +535,35 @@ def run_verification(task_dir: Path, work_dir: Path) -> dict:
             with open(test_py, "r", encoding="utf-8") as f:
                 test_content = f.read()
             
+            expected_paths = set(re.findall(r"""['"](/root/[^'"]+)['"]""", test_content))
+            expected_paths.update(re.findall(r"""['"](/app/[^'"]+)['"]""", test_content))
+            for full_path in sorted(expected_paths):
+                if full_path.endswith("/"):
+                    continue
+                try:
+                    if full_path.startswith("/root/"):
+                        rel = Path(full_path).relative_to("/root")
+                    else:
+                        rel = Path(full_path).relative_to("/app")
+                except ValueError:
+                    continue
+                src = OPENCLAW_WORKSPACE / rel
+                dest = work_dir / rel
+                if dest.exists():
+                    continue
+                if src.exists() and src.is_file():
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(src), str(dest))
+
+            def replace_abs_token(text: str, src: str, dst: str) -> str:
+                pattern = re.compile(
+                    rf"(^|(?<=[\s'\"`(])){re.escape(src)}(?=($|[\s'\"`)\]]))",
+                    re.MULTILINE,
+                )
+                return pattern.sub(lambda m: f"{m.group(1)}{dst}", text)
+
+            test_content = replace_abs_token(test_content, "/output", f"{work_dir_str}/output")
+
             test_content = test_content.replace("/root/", f"{work_dir_str}/")
             test_content = test_content.replace("/app/", f"{work_dir_str}/")
             test_content = test_content.replace("/workspace/", f"{work_dir_str}/workspace/")
@@ -448,6 +577,8 @@ def run_verification(task_dir: Path, work_dir: Path) -> dict:
             test_content = test_content.replace("sys.path.insert(0, '/root/workspace')", f"sys.path.insert(0, '{work_dir_str}')")
             test_content = test_content.replace('sys.path.insert(0, "/root")', f'sys.path.insert(0, "{work_dir_str}")')
             test_content = test_content.replace("sys.path.insert(0, '/root')", f"sys.path.insert(0, '{work_dir_str}')")
+            test_content = test_content.replace("cwd='/root'", f"cwd='{work_dir_str}'")
+            test_content = test_content.replace('cwd="/root"', f'cwd="{work_dir_str}"')
             
             local_test_py = work_dir / "test_outputs.py"
             with open(local_test_py, "w", encoding="utf-8") as f:
