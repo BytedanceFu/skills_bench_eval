@@ -24,6 +24,9 @@ uv run skill_bench_eval.py list
 # 3. Run a single task
 uv run skill_bench_eval.py run --task 3d-scan-calc --token YOUR_TOKEN
 
+# 3b. Run a range of tasks by index (same order as list, 1-based, inclusive)
+uv run skill_bench_eval.py run --start 6 --end 10 --token YOUR_TOKEN
+
 # 4. Run all tasks
 uv run skill_bench_eval.py run --token YOUR_TOKEN
 ```
@@ -50,6 +53,8 @@ uv run skill_bench_eval.py run --token YOUR_TOKEN
 | `--base-url` | `http://127.0.0.1:18789` | OpenClaw gateway URL |
 | `--token` | `xxx` | Auth token (or `OPENCLAW_GATEWAY_TOKEN` env var) |
 | `--user` | auto-generated | User identifier for session |
+| `--start` | none | Run tasks starting from this index (1-based, same order as `list`) |
+| `--end` | none | Run tasks ending at this index (inclusive, 1-based, same order as `list`) |
 
 ## Excluded Tasks
 

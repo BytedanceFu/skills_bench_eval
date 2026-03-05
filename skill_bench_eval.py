@@ -483,13 +483,13 @@ def run_list(args: argparse.Namespace) -> None:
         return
     
     print(f"=== Available Tasks ({len(tasks)}) ===", file=sys.stderr)
-    for task_dir in tasks:
+    for i, task_dir in enumerate(tasks, 1):
         instruction_file = task_dir / "instruction.md"
         has_instruction = instruction_file.exists()
         skills_dir = task_dir / "environment" / "skills"
         has_skills = skills_dir.exists()
         status = f"instruction={'Y' if has_instruction else 'N'} skills={'Y' if has_skills else 'N'}"
-        print(f"  - {task_dir.name} [{status}]", file=sys.stderr)
+        print(f"  {i:3d}. {task_dir.name} [{status}]", file=sys.stderr)
 
 
 def run_verification(task_dir: Path, work_dir: Path) -> dict:
@@ -741,12 +741,30 @@ def run_run(args: argparse.Namespace) -> None:
         print("No tasks found. Run 'prepare' first.", file=sys.stderr)
         sys.exit(1)
     
+    if args.task and (args.count is not None or args.start is not None or args.end is not None):
+        print("Error: --task cannot be combined with --count/--start/--end", file=sys.stderr)
+        sys.exit(1)
+    if args.count is not None and (args.start is not None or args.end is not None):
+        print("Error: --count cannot be combined with --start/--end", file=sys.stderr)
+        sys.exit(1)
+    
     if args.task:
         task_dir = TASKS_DIR / args.task
         if not task_dir.exists():
             print(f"Task not found: {args.task}", file=sys.stderr)
             sys.exit(1)
         tasks = [task_dir]
+    elif args.start is not None or args.end is not None:
+        start = args.start or 1
+        end = args.end or len(tasks)
+        if start < 1 or end < 1 or start > end:
+            print(f"Error: invalid range --start {start} --end {end}", file=sys.stderr)
+            sys.exit(1)
+        if start > len(tasks):
+            print(f"Error: --start {start} exceeds available tasks ({len(tasks)})", file=sys.stderr)
+            sys.exit(1)
+        end = min(end, len(tasks))
+        tasks = tasks[start - 1 : end]
     elif args.count:
         tasks = tasks[:args.count]
     
@@ -827,6 +845,18 @@ def main():
         type=int,
         default=None,
         help="Run first N tasks only",
+    )
+    run_parser.add_argument(
+        "--start",
+        type=int,
+        default=None,
+        help="Run tasks starting from this index (1-based, same order as list)",
+    )
+    run_parser.add_argument(
+        "--end",
+        type=int,
+        default=None,
+        help="Run tasks ending at this index (inclusive, 1-based, same order as list)",
     )
     run_parser.add_argument(
         "--base-url",
