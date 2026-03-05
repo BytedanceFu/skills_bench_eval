@@ -408,7 +408,7 @@ Use paths relative to that directory (do NOT create nested {work_dir_str}/ insid
 
 For example:
 - Read input: data/...
-- Write output: output/...
+- Write output: follow the task instructions exactly (e.g. write `report.json` or `period.txt` in this directory).
 
 ---
 
@@ -417,6 +417,28 @@ For example:
     result = work_dir_notice + result
     
     return result
+
+
+def normalize_outputs(work_dir: Path) -> None:
+    output_dir = work_dir / "output"
+    if not output_dir.exists() or not output_dir.is_dir():
+        return
+
+    copied = 0
+    for item in output_dir.iterdir():
+        if not item.is_file():
+            continue
+        dst = work_dir / item.name
+        if dst.exists():
+            continue
+        try:
+            shutil.copy2(item, dst)
+            copied += 1
+        except Exception:
+            continue
+
+    if copied:
+        print(f"    [output] copied {copied} file(s) from output/ to task root", file=sys.stderr)
 
 
 def get_available_tasks() -> list[Path]:
@@ -809,6 +831,7 @@ def run_task(
         print(f"    [tokens] in={usage.get('input_tokens', 0)} out={usage.get('output_tokens', 0)}", file=sys.stderr)
         
         if work_dir:
+            normalize_outputs(work_dir)
             verification_result = run_verification(task_dir, work_dir)
             result["verification"] = verification_result
             
