@@ -819,7 +819,7 @@ def run_task(
         # restore_skills(backup_path)
 
         print(f"    [cleanup] deleted session for user {user}")
-        time.sleep(15)
+        time.sleep(25)
         delete_session(user)
         
         result["end_time"] = time.time()
