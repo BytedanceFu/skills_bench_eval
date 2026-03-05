@@ -526,6 +526,20 @@ def run_verification(task_dir: Path, work_dir: Path) -> dict:
     
     logs_dir = work_dir / "logs" / "verifier"
     logs_dir.mkdir(parents=True, exist_ok=True)
+
+    if tests_dir.exists():
+        for item in tests_dir.rglob("*"):
+            if not item.is_file():
+                continue
+            if item.suffix == ".sh":
+                continue
+            if item.suffix == ".py" and item.name == "test_outputs.py":
+                continue
+            rel = item.relative_to(tests_dir)
+            dest = work_dir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if not dest.exists():
+                shutil.copy2(item, dest)
     
     work_dir_relative = work_dir.relative_to(OPENCLAW_WORKSPACE)
     work_dir_str = str(work_dir_relative)
@@ -563,23 +577,66 @@ def run_verification(task_dir: Path, work_dir: Path) -> dict:
                 )
                 return pattern.sub(lambda m: f"{m.group(1)}{dst}", text)
 
-            test_content = replace_abs_token(test_content, "/output", f"{work_dir_str}/output")
+            def replace_abs_prefix(text: str, src: str, dst: str) -> str:
+                pattern = re.compile(
+                    rf"(^|(?<=[\s'\"`(])){re.escape(src)}",
+                    re.MULTILINE,
+                )
+                return pattern.sub(lambda m: f"{m.group(1)}{dst}", text)
 
-            test_content = test_content.replace("/root/", f"{work_dir_str}/")
-            test_content = test_content.replace("/app/", f"{work_dir_str}/")
-            test_content = test_content.replace("/workspace/", f"{work_dir_str}/workspace/")
-            test_content = test_content.replace("/output/", f"{work_dir_str}/output/")
-            test_content = test_content.replace("/data/", f"{work_dir_str}/data/")
-            test_content = test_content.replace("/logs/", f"{work_dir_str}/logs/")
-            test_content = test_content.replace("/tests/", f"{tests_dir_relative}/")
-            test_content = test_content.replace('sys.path.insert(0, "/tests/src")', f'sys.path.insert(0, "{tests_dir_relative}/src")')
-            test_content = test_content.replace("sys.path.insert(0, '/tests/src')", f"sys.path.insert(0, '{tests_dir_relative}/src')")
-            test_content = test_content.replace('sys.path.insert(0, "/root/workspace")', f'sys.path.insert(0, "{work_dir_str}")')
-            test_content = test_content.replace("sys.path.insert(0, '/root/workspace')", f"sys.path.insert(0, '{work_dir_str}')")
-            test_content = test_content.replace('sys.path.insert(0, "/root")', f'sys.path.insert(0, "{work_dir_str}")')
-            test_content = test_content.replace("sys.path.insert(0, '/root')", f"sys.path.insert(0, '{work_dir_str}')")
-            test_content = test_content.replace("cwd='/root'", f"cwd='{work_dir_str}'")
-            test_content = test_content.replace('cwd="/root"', f'cwd="{work_dir_str}"')
+            def rewrite_test_text(text: str) -> str:
+                abs_token_map = {
+                    "/root": f"{work_dir_str}",
+                    "/app": f"{work_dir_str}",
+                    "/workspace": f"{work_dir_str}/workspace",
+                    "/output": f"{work_dir_str}/output",
+                    "/data": f"{work_dir_str}/data",
+                    "/logs": f"{work_dir_str}/logs",
+                    "/tests": f"{tests_dir_relative}",
+                }
+                for src, dst in abs_token_map.items():
+                    text = replace_abs_token(text, src, dst)
+
+                abs_prefix_map = {
+                    "/root/": f"{work_dir_str}/",
+                    "/app/": f"{work_dir_str}/",
+                    "/workspace/": f"{work_dir_str}/workspace/",
+                    "/output/": f"{work_dir_str}/output/",
+                    "/data/": f"{work_dir_str}/data/",
+                    "/logs/": f"{work_dir_str}/logs/",
+                    "/tests/": f"{tests_dir_relative}/",
+                }
+                for src, dst in abs_prefix_map.items():
+                    text = replace_abs_prefix(text, src, dst)
+
+                text = text.replace('sys.path.insert(0, "/tests/src")', f'sys.path.insert(0, "{tests_dir_relative}/src")')
+                text = text.replace("sys.path.insert(0, '/tests/src')", f"sys.path.insert(0, '{tests_dir_relative}/src')")
+                text = text.replace('sys.path.insert(0, "/root/workspace")', f'sys.path.insert(0, "{work_dir_str}")')
+                text = text.replace("sys.path.insert(0, '/root/workspace')", f"sys.path.insert(0, '{work_dir_str}')")
+                text = text.replace('sys.path.insert(0, "/root")', f'sys.path.insert(0, "{work_dir_str}")')
+                text = text.replace("sys.path.insert(0, '/root')", f"sys.path.insert(0, '{work_dir_str}')")
+                text = text.replace("cwd='/root'", f"cwd='{work_dir_str}'")
+                text = text.replace('cwd="/root"', f'cwd="{work_dir_str}"')
+                return text
+
+            if tests_dir.exists():
+                for helper_py in tests_dir.rglob("*.py"):
+                    if helper_py.name == "test_outputs.py":
+                        continue
+                    rel = helper_py.relative_to(tests_dir)
+                    dest = work_dir / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    if not dest.exists():
+                        shutil.copy2(helper_py, dest)
+                    try:
+                        helper_text = dest.read_text(encoding="utf-8")
+                        rewritten = rewrite_test_text(helper_text)
+                        if rewritten != helper_text:
+                            dest.write_text(rewritten, encoding="utf-8")
+                    except Exception:
+                        pass
+
+            test_content = rewrite_test_text(test_content)
             
             local_test_py = work_dir / "test_outputs.py"
             with open(local_test_py, "w", encoding="utf-8") as f:
