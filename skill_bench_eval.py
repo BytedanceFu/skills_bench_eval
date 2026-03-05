@@ -502,6 +502,7 @@ def run_verification(task_dir: Path, work_dir: Path) -> dict:
         "passed": False,
         "test_output": None,
         "error": None,
+        "test_score": None,
     }
     
     if not tests_dir.exists():
@@ -608,6 +609,18 @@ def run_verification(task_dir: Path, work_dir: Path) -> dict:
             result["test_output"] = proc_result.stdout + proc_result.stderr
             result["verified"] = True
             result["passed"] = proc_result.returncode == 0
+
+            summary_text = result["test_output"] or ""
+            collected_match = re.search(r"collected\s+(\d+)\s+items", summary_text)
+            passed_count = len(re.findall(r"\bPASSED\s+\[", summary_text))
+            failed_count = len(re.findall(r"\bFAILED\s+\[", summary_text))
+            skipped_count = len(re.findall(r"\bSKIPPED\s+\[", summary_text))
+            total_count = int(collected_match.group(1)) if collected_match else None
+            if total_count is None and (passed_count or failed_count or skipped_count):
+                total_count = passed_count + failed_count + skipped_count
+            if total_count:
+                score = passed_count / total_count
+                result["test_score"] = round(score, 2)
             
             if result["passed"]:
                 print(f"    [verify] PASSED", file=sys.stderr)
@@ -721,7 +734,9 @@ def run_task(
         print(f"    [error] {e}", file=sys.stderr)
     finally:
         # restore_skills(backup_path)
-        
+
+        print(f"    [cleanup] deleted session for user {user}")
+        time.sleep(15)
         delete_session(user)
         
         result["end_time"] = time.time()
@@ -804,6 +819,11 @@ def run_run(args: argparse.Namespace) -> None:
         "total_usage": total_usage,
         "tasks": [r["task"] for r in results],
     }
+    summary["pass_rate"] = summary["passed"] / summary["total_tasks"] if summary["total_tasks"] else 0
+    summary["score"] = round(
+        sum((r.get("verification", {}).get("test_score") or 0) for r in results),
+        2,
+    )
     
     summary_file = output_base / "summary.json"
     with open(summary_file, "w", encoding="utf-8") as f:
