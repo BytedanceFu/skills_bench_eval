@@ -79,7 +79,12 @@ def send_message(
     resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
     resp.raise_for_status()
     body = resp.json()
-    usage = body.get("usage", {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+    usage = body.get("usage") or {}
+    input_tokens = int(usage.get("input_tokens") or 0)
+    output_tokens = int(usage.get("output_tokens") or 0)
+    usage["input_tokens"] = input_tokens
+    usage["output_tokens"] = output_tokens
+    usage["total_tokens"] = input_tokens + output_tokens
     
     try:
         for item in body.get("output", []):
