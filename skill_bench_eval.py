@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -195,11 +196,36 @@ def rewrite_skill_paths(src_skills_dir: Path, dest_skills_dir: Path) -> None:
                 print(f"    [warn] could not rewrite {file_path}: {e}", file=sys.stderr)
 
 
+def safe_rmtree(path: Path) -> bool:
+    if not path.exists():
+        return True
+    try:
+        def _onerror(func, p, exc_info):
+            try:
+                if os.path.isdir(p):
+                    os.chmod(p, stat.S_IRWXU)
+                else:
+                    os.chmod(p, stat.S_IRUSR | stat.S_IWUSR)
+            except Exception:
+                pass
+            try:
+                func(p)
+            except Exception:
+                pass
+
+        shutil.rmtree(path, onerror=_onerror)
+        return True
+    except Exception:
+        return False
+
+
 def replace_skills(task_skills_dir: Path) -> bool:
     """Replace skills directory with task-specific skills."""
     try:
         if OPENCLAW_SKILLS_DIR.exists():
-            shutil.rmtree(OPENCLAW_SKILLS_DIR)
+            if not safe_rmtree(OPENCLAW_SKILLS_DIR):
+                fallback = OPENCLAW_SKILLS_DIR.parent / f"skills_stash_{int(time.time())}"
+                OPENCLAW_SKILLS_DIR.rename(fallback)
         if task_skills_dir.exists():
             shutil.copytree(task_skills_dir, OPENCLAW_SKILLS_DIR)
             rewrite_skill_paths(task_skills_dir, OPENCLAW_SKILLS_DIR)
@@ -217,10 +243,10 @@ def restore_skills(backup_path: Optional[Path]) -> None:
     """Restore skills directory from backup."""
     try:
         if OPENCLAW_SKILLS_DIR.exists():
-            shutil.rmtree(OPENCLAW_SKILLS_DIR)
+            safe_rmtree(OPENCLAW_SKILLS_DIR)
         if backup_path and backup_path.exists():
             shutil.copytree(backup_path, OPENCLAW_SKILLS_DIR)
-            shutil.rmtree(backup_path)
+            safe_rmtree(backup_path)
             print(f"    [skills] restored from backup", file=sys.stderr)
         else:
             OPENCLAW_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
@@ -300,7 +326,7 @@ def prepare_work_dir(task_dir: Path) -> Path:
     work_path = WORK_DIR / task_name
     
     if work_path.exists():
-        shutil.rmtree(work_path)
+        safe_rmtree(work_path)
     work_path.mkdir(parents=True, exist_ok=True)
     
     env_dir = task_dir / "environment"
@@ -871,7 +897,7 @@ def run_run(args: argparse.Namespace) -> None:
     summary = {
         "total_tasks": len(tasks),
         "completed": sum(1 for r in results if r["status"] == "completed"),
-        "passed": sum(1 for r in results if r.get("verification", {}).get("passed", False)),
+        "passed": sum(1 for r in results if (r.get("verification") or {}).get("passed", False)),
         "errors": sum(1 for r in results if r["status"] == "error"),
         "total_usage": total_usage,
         "tasks": [r["task"] for r in results],
