@@ -45,6 +45,7 @@ EXCLUDED_TASKS = {
     "trend-anomaly-causal-inference",
     "video-filler-word-remover",
     "video-tutorial-indexer",
+    "find-topk-similiar-chemicals",
     "flink-query",
     "fix-build-agentops",
     "fix-build-google-auto",
@@ -913,13 +914,13 @@ def run_run(args: argparse.Namespace) -> None:
         sys.exit(1)
     
     if args.task:
+        if args.task in EXCLUDED_TASKS:
+            print(f"Task skipped: {args.task} (excluded)", file=sys.stderr)
+            sys.exit(0)
         task_dir = TASKS_DIR / args.task
         if not task_dir.exists():
             print(f"Task not found: {args.task}", file=sys.stderr)
             sys.exit(1)
-        if args.task in EXCLUDED_TASKS:
-            print(f"Task skipped: {args.task} (excluded)", file=sys.stderr)
-            sys.exit(0)
         tasks = [task_dir]
     elif args.start is not None or args.end is not None:
         start = args.start or 1
