@@ -72,6 +72,11 @@ The following tasks are excluded (require extra API keys or have issues):
 | `trend-anomaly-causal-inference` | Requires Anthropic + OpenAI API keys |
 | `video-filler-word-remover` | Requires `OPENAI_API_KEY` |
 | `video-tutorial-indexer` | Requires `OPENAI_API_KEY` |
+| `fix-build-agentops` | Requires BugSwarm build artifacts (`/home/github/build`) + `REPO_ID` |
+| `fix-build-google-auto` | Requires BugSwarm build artifacts (`/home/github/build`) + `REPO_ID` |
+| `fix-druid-loophole-cve` | Requires BugSwarm build artifacts (`/home/github/build`) + `REPO_ID` |
+| `fix-erlang-ssh-cve` | Requires BugSwarm build artifacts (`/home/github/build`) + `REPO_ID` |
+| `fix-visual-stability` | Requires running web app on `localhost:3000` for Playwright tests |
 
 ## Output Structure
 
