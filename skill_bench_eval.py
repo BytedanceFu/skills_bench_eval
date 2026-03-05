@@ -45,6 +45,7 @@ EXCLUDED_TASKS = {
     "trend-anomaly-causal-inference",
     "video-filler-word-remover",
     "video-tutorial-indexer",
+    "flink-query",
     "fix-build-agentops",
     "fix-build-google-auto",
     "fix-druid-loophole-cve",
