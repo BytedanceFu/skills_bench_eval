@@ -72,6 +72,7 @@ The following tasks are excluded (require extra API keys or have issues):
 | `trend-anomaly-causal-inference` | Requires Anthropic + OpenAI API keys |
 | `video-filler-word-remover` | Requires `OPENAI_API_KEY` |
 | `video-tutorial-indexer` | Requires `OPENAI_API_KEY` |
+| `glm-lake-mendota` | Requires GLM binary (`glm`) available on PATH |
 | `find-topk-similiar-chemicals` | Requires PubChem network (often unstable/blocked in CN region) |
 | `flink-query` | Requires Maven (`mvn`) and `/opt/flink/bin/flink` |
 | `fix-build-agentops` | Requires BugSwarm build artifacts (`/home/github/build`) + `REPO_ID` |

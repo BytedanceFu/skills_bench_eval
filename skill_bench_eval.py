@@ -45,6 +45,7 @@ EXCLUDED_TASKS = {
     "trend-anomaly-causal-inference",
     "video-filler-word-remover",
     "video-tutorial-indexer",
+    "glm-lake-mendota",
     "find-topk-similiar-chemicals",
     "flink-query",
     "fix-build-agentops",
