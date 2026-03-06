@@ -53,6 +53,7 @@ EXCLUDED_TASKS = {
     "fix-druid-loophole-cve",
     "fix-erlang-ssh-cve",
     "fix-visual-stability",
+    "syzkaller-ppdev-syzlang",
 }
 
 PROJECT_ROOT = Path(__file__).parent.resolve()

@@ -80,6 +80,7 @@ The following tasks are excluded (require extra API keys or have issues):
 | `fix-druid-loophole-cve` | Requires BugSwarm build artifacts (`/home/github/build`) + `REPO_ID` |
 | `fix-erlang-ssh-cve` | Requires BugSwarm build artifacts (`/home/github/build`) + `REPO_ID` |
 | `fix-visual-stability` | Requires running web app on `localhost:3000` for Playwright tests |
+| `syzkaller-ppdev-syzlang` | Requires syzkaller at `/opt/syzkaller` and `make descriptions/generate` |
 
 ## Output Structure
 
