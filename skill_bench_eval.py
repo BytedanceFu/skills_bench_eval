@@ -480,36 +480,110 @@ def wait_for_work_dir_settle(work_dir: Path, timeout_s: float = 10.0, poll_s: fl
         time.sleep(max(0.05, float(poll_s)))
 
 
-def copy_relative_outputs_for_workspace(work_dir: Path, test_content: str) -> list[Path]:
+def cleanup_temp_workspace_paths(files: list[Path], dirs: list[Path]) -> None:
+    for p in files:
+        try:
+            if p.exists() and p.is_file():
+                p.unlink()
+        except Exception:
+            pass
+
+    for d in sorted(set(dirs), key=lambda p: len(p.parts), reverse=True):
+        try:
+            d.rmdir()
+        except Exception:
+            pass
+
+
+def _copy_file_to_workspace_root_if_missing(
+    work_dir: Path, rel: str, created_dirs: set[Path]
+) -> Path | None:
+    if not rel or os.path.isabs(rel):
+        return None
+    if rel.startswith("bench_work/"):
+        return None
+
+    src = work_dir / rel
+    if not src.exists() or not src.is_file():
+        return None
+
+    dest = OPENCLAW_WORKSPACE / rel
+    if dest.exists():
+        return None
+
+    to_create: list[Path] = []
+    parent = dest.parent
+    while parent != OPENCLAW_WORKSPACE and not parent.exists():
+        to_create.append(parent)
+        parent = parent.parent
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    for p in to_create:
+        created_dirs.add(p)
+    try:
+        shutil.copy2(src, dest)
+        return dest
+    except Exception:
+        return None
+
+
+def copy_relative_outputs_for_workspace(work_dir: Path, test_content: str) -> tuple[list[Path], list[Path]]:
     patterns = [
         r"""Path\(\s*['"]([^'"]+)['"]\s*\)""",
         r"""open\(\s*['"]([^'"]+)['"]""",
         r"""os\.path\.exists\(\s*['"]([^'"]+)['"]\s*\)""",
+        r"""^\s*[A-Za-z_][A-Za-z0-9_]*\s*=\s*['"]([^'"]+)['"]\s*$""",
     ]
     rel_paths = set()
     for pattern in patterns:
-        for match in re.findall(pattern, test_content):
+        for match in re.findall(pattern, test_content, flags=re.MULTILINE):
             rel_paths.add(match)
 
-    created: list[Path] = []
+    created_files: list[Path] = []
+    created_dirs: set[Path] = set()
     for rel in sorted(rel_paths):
-        if not rel or os.path.isabs(rel):
-            continue
-        if rel.startswith("bench_work/"):
-            continue
-        src = work_dir / rel
-        if not src.exists() or not src.is_file():
-            continue
-        dest = OPENCLAW_WORKSPACE / rel
-        if dest.exists():
-            continue
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            shutil.copy2(src, dest)
-            created.append(dest)
-        except Exception:
-            continue
-    return created
+        dest = _copy_file_to_workspace_root_if_missing(work_dir, rel, created_dirs)
+        if dest is not None:
+            created_files.append(dest)
+    return created_files, sorted(created_dirs, key=lambda p: len(p.parts), reverse=True)
+
+
+def copy_outputs_from_problem_json(work_dir: Path) -> tuple[list[Path], list[Path]]:
+    problem_file = work_dir / "problem.json"
+    if not problem_file.exists() or not problem_file.is_file():
+        return [], []
+    try:
+        data = json.loads(problem_file.read_text(encoding="utf-8"))
+    except Exception:
+        return [], []
+
+    candidates: set[str] = set()
+
+    def add_candidate(value: object, key: str | None = None) -> None:
+        if not isinstance(value, str):
+            return
+        if key is not None:
+            if key in {"domain", "problem", "plan_output", "output"} or key.endswith("_output"):
+                candidates.add(value)
+                return
+        if "/" not in value and "\\" not in value and value.endswith((".txt", ".json", ".csv", ".xlsx", ".mp4", ".wav", ".nc")):
+            candidates.add(value)
+
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                for k, v in item.items():
+                    add_candidate(v, str(k))
+    elif isinstance(data, dict):
+        for k, v in data.items():
+            add_candidate(v, str(k))
+
+    created_files: list[Path] = []
+    created_dirs: set[Path] = set()
+    for rel in sorted(candidates):
+        dest = _copy_file_to_workspace_root_if_missing(work_dir, rel, created_dirs)
+        if dest is not None:
+            created_files.append(dest)
+    return created_files, sorted(created_dirs, key=lambda p: len(p.parts), reverse=True)
 
 
 def get_available_tasks() -> list[Path]:
@@ -760,7 +834,14 @@ def run_verification(task_dir: Path, work_dir: Path) -> dict:
                     except Exception:
                         pass
 
-            temp_workspace_files = copy_relative_outputs_for_workspace(work_dir, test_content)
+            temp_workspace_files: list[Path] = []
+            temp_workspace_dirs: list[Path] = []
+            files, dirs = copy_relative_outputs_for_workspace(work_dir, test_content)
+            temp_workspace_files.extend(files)
+            temp_workspace_dirs.extend(dirs)
+            files, dirs = copy_outputs_from_problem_json(work_dir)
+            temp_workspace_files.extend(files)
+            temp_workspace_dirs.extend(dirs)
             test_content = rewrite_test_text(test_content)
             
             local_test_py = work_dir / "test_outputs.py"
@@ -778,20 +859,17 @@ def run_verification(task_dir: Path, work_dir: Path) -> dict:
             ]
             
             print(f"    [verify] running: pytest test_outputs.py", file=sys.stderr)
-            
-            proc_result = subprocess.run(
-                test_cmd,
-                capture_output=True,
-                text=True,
-                cwd=str(OPENCLAW_WORKSPACE),
-                env=env,
-                timeout=300,
-            )
-            for temp_file in temp_workspace_files:
-                try:
-                    temp_file.unlink()
-                except Exception:
-                    pass
+            try:
+                proc_result = subprocess.run(
+                    test_cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=str(OPENCLAW_WORKSPACE),
+                    env=env,
+                    timeout=300,
+                )
+            finally:
+                cleanup_temp_workspace_paths(temp_workspace_files, temp_workspace_dirs)
             
             result["test_output"] = proc_result.stdout + proc_result.stderr
             result["verified"] = True
