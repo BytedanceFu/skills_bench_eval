@@ -480,6 +480,38 @@ def wait_for_work_dir_settle(work_dir: Path, timeout_s: float = 10.0, poll_s: fl
         time.sleep(max(0.05, float(poll_s)))
 
 
+def copy_relative_outputs_for_workspace(work_dir: Path, test_content: str) -> list[Path]:
+    patterns = [
+        r"""Path\(\s*['"]([^'"]+)['"]\s*\)""",
+        r"""open\(\s*['"]([^'"]+)['"]""",
+        r"""os\.path\.exists\(\s*['"]([^'"]+)['"]\s*\)""",
+    ]
+    rel_paths = set()
+    for pattern in patterns:
+        for match in re.findall(pattern, test_content):
+            rel_paths.add(match)
+
+    created: list[Path] = []
+    for rel in sorted(rel_paths):
+        if not rel or os.path.isabs(rel):
+            continue
+        if rel.startswith("bench_work/"):
+            continue
+        src = work_dir / rel
+        if not src.exists() or not src.is_file():
+            continue
+        dest = OPENCLAW_WORKSPACE / rel
+        if dest.exists():
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copy2(src, dest)
+            created.append(dest)
+        except Exception:
+            continue
+    return created
+
+
 def get_available_tasks() -> list[Path]:
     """Get list of available task directories."""
     if not TASKS_DIR.exists():
@@ -728,6 +760,7 @@ def run_verification(task_dir: Path, work_dir: Path) -> dict:
                     except Exception:
                         pass
 
+            temp_workspace_files = copy_relative_outputs_for_workspace(work_dir, test_content)
             test_content = rewrite_test_text(test_content)
             
             local_test_py = work_dir / "test_outputs.py"
@@ -754,6 +787,11 @@ def run_verification(task_dir: Path, work_dir: Path) -> dict:
                 env=env,
                 timeout=300,
             )
+            for temp_file in temp_workspace_files:
+                try:
+                    temp_file.unlink()
+                except Exception:
+                    pass
             
             result["test_output"] = proc_result.stdout + proc_result.stderr
             result["verified"] = True
