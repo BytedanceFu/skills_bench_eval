@@ -95,6 +95,21 @@ output/
 └── summary.json            # Overall summary report
 ```
 
+## Notes
+
+### virtualhome-agent-planning (manual verification)
+
+The `virtualhome-agent-planning` tests check `task01.txt`, `task02.txt`, ... as paths relative to the verifier working directory (`~/.openclaw/workspace`). If your plans are generated under `bench_work/virtualhome-agent-planning/`, copy them to the workspace root before running pytest:
+
+```bash
+cd /Users/bytedance/.openclaw/workspace
+cp bench_work/virtualhome-agent-planning/task*.txt .
+cp -R bench_work/virtualhome-agent-planning/airport .
+python -m pytest -q bench_work/virtualhome-agent-planning/test_outputs.py
+rm -f task*.txt
+rm -rf airport
+```
+
 ## How It Works
 
 Each task execution follows this flow:
